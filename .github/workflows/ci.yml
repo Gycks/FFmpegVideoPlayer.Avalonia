@@ -3,8 +3,6 @@ name: CI
 on:
   push:
     branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
 
 jobs:
   build:
@@ -26,8 +24,18 @@ jobs:
       - name: Restore solution
         run: dotnet restore FFmpegVideoPlayer.Avalonia.sln
 
-      - name: Build solution (Release)
-        run: dotnet build FFmpegVideoPlayer.Avalonia.sln -c Release --no-restore
+      - name: Build Core
+        run: dotnet build FFmpegVideoPlayer.Core/FFmpegVideoPlayer.Core.csproj -c Release --no-restore
 
-      - name: Build example app (Release)
-        run: dotnet build examples/FFmpegVideoPlayerExample/FFmpegVideoPlayerExample.csproj -c Release --no-restore
+      - name: Build Avalonia
+        run: dotnet build Avalonia.FFmpegVideoPlayer.csproj -c Release --no-restore
+
+      - name: Pack Core
+        run: dotnet pack FFmpegVideoPlayer.Core/FFmpegVideoPlayer.Core.csproj -c Release --no-build --output ./artifacts -p:Version=${{ env.UPSTREAM_VERSION }}.${{ env.FORK_REVISION }}
+
+      - name: Pack Avalonia
+        run: dotnet pack Avalonia.FFmpegVideoPlayer.csproj -c Release --no-build --output ./artifacts -p:Version=${{ env.UPSTREAM_VERSION }}.${{ env.FORK_REVISION }}
+
+      - name: Push to GitHub Packages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        run: dotnet nuget push ./artifacts/*.nupkg --api-key ${{ secrets.GITHUB_TOKEN }} --source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json" --skip-duplicate
