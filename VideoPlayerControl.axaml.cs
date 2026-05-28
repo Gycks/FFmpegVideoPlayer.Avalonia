@@ -8,6 +8,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using FFmpegVideoPlayer.Core;
+using FFmpegVideoPlayer.Core.Models;
 using Path = Avalonia.Controls.Shapes.Path;
 using OpenTKAudioFactory = FFmpegVideoPlayer.Audio.OpenTK.AudioPlayerFactory;
 
@@ -444,6 +445,12 @@ public partial class VideoPlayerControl : UserControl
     /// Occurs when the media ends.
     /// </summary>
     public event EventHandler? MediaEnded;
+    
+    /// <summary>
+    /// Raised on the UI thread when a subtitle cue is ready for display.
+    /// Wire this to SubtitleOverlay.Schedule(cue) if you use one.
+    /// </summary>
+    public event Action<SubtitleCue>? SubtitleCueReady;
 
     /// <summary>
     /// Creates a new instance of the VideoPlayerControl.
@@ -710,6 +717,7 @@ public partial class VideoPlayerControl : UserControl
             _mediaPlayer.Stopped += OnStopped;
             _mediaPlayer.EndReached += OnEndReached;
             _mediaPlayer.FrameReady += OnFrameReady;
+            _mediaPlayer.SubtitleCueReady += OnSubtitleCueReady;
 
             _isInitialized = true;
             
@@ -852,6 +860,13 @@ public partial class VideoPlayerControl : UserControl
             e.Dispose();
         }
     }
+    
+    private void OnSubtitleCueReady(SubtitleCue cue)
+    {
+        // SubtitleCueReady is raised on the FFmpeg background thread.
+        // Marshal to the UI thread before raising our own event.
+        Dispatcher.UIThread.Post(() => SubtitleCueReady?.Invoke(cue));
+    }
 
     /// <summary>
     /// Opens and optionally plays a media file.
@@ -980,6 +995,44 @@ public partial class VideoPlayerControl : UserControl
     public void Seek(float positionPercent)
     {
         _mediaPlayer?.Seek(positionPercent);
+    }
+    
+    // <summary>
+    /// Returns all audio and subtitle tracks available in the current media.
+    /// Call after MediaOpened fires.
+    /// Returns an empty list if no media is loaded.
+    /// </summary>
+    public List<MediaTrackInfo> GetTracks()
+        => _mediaPlayer?.GetTracks() ?? new List<MediaTrackInfo>();
+
+    /// <summary>
+    /// Gets or sets the active audio stream index.
+    /// Use a StreamIndex value from GetTracks() (IsAudio == true).
+    /// Switches the audio track without interrupting video playback.
+    /// </summary>
+    public int AudioStreamIndex
+    {
+        get => _mediaPlayer?.AudioStreamIndex ?? -1;
+        set
+        {
+            if (_mediaPlayer != null)
+                _mediaPlayer.AudioStreamIndex = value;
+        }
+    }
+
+    /// <summary>
+    /// Gets or sets the active subtitle stream index.
+    /// Use a StreamIndex value from GetTracks() (IsAudio == false).
+    /// Set to -1 to disable subtitles.
+    /// </summary>
+    public int SubtitleStreamIndex
+    {
+        get => _mediaPlayer?.SubtitleStreamIndex ?? -1;
+        set
+        {
+            if (_mediaPlayer != null)
+                _mediaPlayer.SubtitleStreamIndex = value;
+        }
     }
 
     /// <summary>

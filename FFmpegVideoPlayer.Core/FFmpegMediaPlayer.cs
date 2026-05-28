@@ -6,6 +6,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using FFmpeg.AutoGen;
+using FFmpegVideoPlayer.Core.Models;
 
 namespace FFmpegVideoPlayer.Core;
 
@@ -26,6 +27,7 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
     
     private int _videoStreamIndex = -1;
     private int _audioStreamIndex = -1;
+    private int _subtitleStreamIndex = -1;
     
     private byte* _rgbBuffer;
     private int _rgbBufferSize;
@@ -108,6 +110,12 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
     
     // Logging
     private readonly PlayerLogger _logger = new();
+    
+    /// <summary>
+    /// Raised on a background thread when a subtitle cue has been decoded.
+    /// Marshal to the UI thread before updating the display.
+    /// </summary>
+    public event Action<SubtitleCue>? SubtitleCueReady;
     
     // Synchronization callback for UI thread marshalling (optional, can be null)
     private readonly Action<Action>? _synchronizationCallback;
@@ -220,6 +228,354 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
     /// Raised when media reaches the end.
     /// </summary>
     public event EventHandler? EndReached;
+    
+    /// <summary>
+    /// Returns all audio and subtitle tracks found in the current media.
+    /// Call after Open() returns true.
+    /// Returns an empty list if no media is open.
+    /// </summary>
+    public List<MediaTrackInfo> GetTracks()
+    {
+        lock (_lock)
+        {
+            if (_formatContext == null)
+                return new List<MediaTrackInfo>();
+
+            var result = new List<MediaTrackInfo>();
+
+            for (int i = 0; i < (int)_formatContext->nb_streams; i++)
+            {
+                var st = _formatContext->streams[i];
+                var type = st->codecpar->codec_type;
+
+                if (type != AVMediaType.AVMEDIA_TYPE_AUDIO &&
+                    type != AVMediaType.AVMEDIA_TYPE_SUBTITLE)
+                    continue;
+
+                bool isAudio = type == AVMediaType.AVMEDIA_TYPE_AUDIO;
+
+                // Language tag
+                string lang = string.Empty;
+                var langEntry = ffmpeg.av_dict_get(st->metadata, "language", null, 0);
+                if (langEntry != null)
+                    lang = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)langEntry->value) ?? string.Empty;
+
+                // Title tag
+                string title = string.Empty;
+                var titleEntry = ffmpeg.av_dict_get(st->metadata, "title", null, 0);
+                if (titleEntry != null)
+                    title = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)titleEntry->value) ?? string.Empty;
+
+                // Codec name
+                string codec = ffmpeg.avcodec_get_name(st->codecpar->codec_id) ?? "unknown";
+
+                // Build label
+                string label = BuildTrackLabel(i, isAudio, lang, title, codec, st);
+
+                // Default flag
+                bool isDefault = (st->disposition & ffmpeg.AV_DISPOSITION_DEFAULT) != 0;
+
+                result.Add(new MediaTrackInfo
+                {
+                    StreamIndex = i,
+                    Label       = label,
+                    Language    = lang,
+                    Title       = title,
+                    IsDefault   = isDefault,
+                    IsAudio     = isAudio
+                });
+            }
+
+            return result;
+        }
+    }
+
+    private static string BuildTrackLabel(int index, bool isAudio, string lang, string title,
+                                           string codec, AVStream* st)
+    {
+        var parts = new System.Text.StringBuilder();
+
+        // Language or fallback
+        if (!string.IsNullOrEmpty(lang))
+            parts.Append(lang.ToUpperInvariant());
+        else
+            parts.Append(isAudio ? $"Audio {index}" : $"Sub {index}");
+
+        // Title (e.g. "SDH", "Forced", "Commentary")
+        if (!string.IsNullOrEmpty(title))
+            parts.Append($" [{title}]");
+
+        // Codec + audio-specific details
+        if (isAudio)
+        {
+            int channels = st->codecpar->ch_layout.nb_channels;
+            int sampleRate = st->codecpar->sample_rate;
+            parts.Append($" ({codec}, {channels}ch, {sampleRate / 1000}kHz)");
+        }
+        else
+        {
+            parts.Append($" ({codec})");
+        }
+
+        return parts.ToString();
+    }
+
+    // ── Audio track switching ─────────────────────────────────────────────────
+
+    /// <summary>
+    /// Gets or sets the active audio stream index.
+    /// Setting this while playing switches audio tracks without interrupting video.
+    /// Use the StreamIndex from GetTracks() to get valid values.
+    /// </summary>
+    public int AudioStreamIndex
+    {
+        get => _audioStreamIndex;
+        set => SwitchAudioStream(value);
+    }
+
+    private void SwitchAudioStream(int newStreamIndex)
+    {
+        lock (_lock)
+        {
+            if (_formatContext == null) return;
+            if (newStreamIndex < 0 || newStreamIndex >= (int)_formatContext->nb_streams) return;
+            if (_formatContext->streams[newStreamIndex]->codecpar->codec_type
+                != AVMediaType.AVMEDIA_TYPE_AUDIO) return;
+            if (newStreamIndex == _audioStreamIndex) return;
+
+            _logger.Log("FFmpegMediaPlayer", "SwitchAudioStream",
+                new { OldStream = _audioStreamIndex, NewStream = newStreamIndex });
+
+            // 1. Stop and release the current audio player
+            _audioPlayer?.Stop();
+            _audioPlayer?.Dispose();
+            _audioPlayer = null;
+
+            // 2. Release the old codec context and resampler
+            if (_audioCodecContext != null)
+            {
+                var ctx = _audioCodecContext;
+                ffmpeg.avcodec_free_context(&ctx);
+                _audioCodecContext = null;
+            }
+            if (_swrContext != null)
+            {
+                var ctx = _swrContext;
+                ffmpeg.swr_free(&ctx);
+                _swrContext = null;
+            }
+
+            // 3. Point to the new stream and re-initialise
+            _audioStreamIndex = newStreamIndex;
+            _audioTimeBase = _formatContext->streams[_audioStreamIndex]->time_base;
+
+            if (!InitializeAudioDecoder())
+            {
+                _logger.Log("FFmpegMediaPlayer", "SwitchAudioStreamFailed",
+                    new { StreamIndex = newStreamIndex });
+                _audioStreamIndex = -1;
+                return;
+            }
+
+            // 4. Flush the format context read buffers so the new stream gets clean packets
+            if (_videoCodecContext != null)
+                ffmpeg.avcodec_flush_buffers(_videoCodecContext);
+            ffmpeg.avcodec_flush_buffers(_audioCodecContext);
+
+            // 5. Resync timing so the new audio stream aligns with the running video clock
+            _needsResync = true;
+            _audioClock = _videoClock;
+
+            // 6. Resume audio if we were playing
+            if (_isPlaying && !_isPaused)
+                _audioPlayer?.Resume();
+
+            _logger.Log("FFmpegMediaPlayer", "SwitchAudioStreamDone",
+                new { StreamIndex = newStreamIndex });
+        }
+    }
+
+    // ── Subtitle stream switching ─────────────────────────────────────────────
+
+    private AVCodecContext* _subtitleCodecContext;
+
+    /// <summary>
+    /// Gets or sets the active subtitle stream index.
+    /// Set to -1 to disable subtitles.
+    /// Use the StreamIndex from GetTracks() to get valid values.
+    /// </summary>
+    public int SubtitleStreamIndex
+    {
+        get => _subtitleStreamIndex;
+        set => SwitchSubtitleStream(value);
+    }
+
+    private void SwitchSubtitleStream(int newStreamIndex)
+    {
+        lock (_lock)
+        {
+            if (newStreamIndex == _subtitleStreamIndex) return;
+
+            // Tear down old subtitle codec
+            if (_subtitleCodecContext != null)
+            {
+                var ctx = _subtitleCodecContext;
+                ffmpeg.avcodec_free_context(&ctx);
+                _subtitleCodecContext = null;
+            }
+
+            if (newStreamIndex < 0)
+            {
+                _subtitleStreamIndex = -1;
+                _logger.Log("FFmpegMediaPlayer", "SubtitlesDisabled", null);
+                return;
+            }
+
+            if (_formatContext == null) return;
+            if (newStreamIndex >= (int)_formatContext->nb_streams) return;
+            if (_formatContext->streams[newStreamIndex]->codecpar->codec_type
+                != AVMediaType.AVMEDIA_TYPE_SUBTITLE) return;
+
+            _subtitleStreamIndex = newStreamIndex;
+
+            if (!InitializeSubtitleDecoder())
+            {
+                _logger.Log("FFmpegMediaPlayer", "SubtitleDecoderInitFailed",
+                    new { StreamIndex = newStreamIndex });
+                _subtitleStreamIndex = -1;
+            }
+            else
+            {
+                _logger.Log("FFmpegMediaPlayer", "SubtitleDecoderInitialized",
+                    new { StreamIndex = newStreamIndex });
+            }
+        }
+    }
+
+    private bool InitializeSubtitleDecoder()
+    {
+        var st = _formatContext->streams[_subtitleStreamIndex];
+        var codec = ffmpeg.avcodec_find_decoder(st->codecpar->codec_id);
+        if (codec == null)
+        {
+            System.Diagnostics.Debug.WriteLine("[FFmpegMediaPlayer] No subtitle decoder found");
+            return false;
+        }
+
+        _subtitleCodecContext = ffmpeg.avcodec_alloc_context3(codec);
+        if (ffmpeg.avcodec_parameters_to_context(_subtitleCodecContext, st->codecpar) < 0)
+            return false;
+
+        if (ffmpeg.avcodec_open2(_subtitleCodecContext, codec, null) < 0)
+            return false;
+
+        return true;
+    }
+
+    private static bool IsTextSubtitleCodec(AVCodecID id) => id is
+        AVCodecID.AV_CODEC_ID_SUBRIP  or
+        AVCodecID.AV_CODEC_ID_ASS     or
+        AVCodecID.AV_CODEC_ID_SSA     or
+        AVCodecID.AV_CODEC_ID_WEBVTT  or
+        AVCodecID.AV_CODEC_ID_MOV_TEXT or
+        AVCodecID.AV_CODEC_ID_TEXT;
+
+    /// <summary>
+    /// Called from PlaybackLoop when a subtitle packet arrives on _subtitleStreamIndex.
+    /// Must be called inside the same lock scope as ProcessAudioPacket.
+    /// </summary>
+    private void ProcessSubtitlePacket()
+    {
+        if (_subtitleCodecContext == null || _packet == null) return;
+
+        var codecId = _formatContext->streams[_subtitleStreamIndex]->codecpar->codec_id;
+        if (!IsTextSubtitleCodec(codecId))
+            return; // Bitmap subtitles (PGS, VOBsub) not handled here
+
+        AVSubtitle sub = default;
+        int gotSub = 0;
+
+        if (ffmpeg.avcodec_decode_subtitle2(_subtitleCodecContext, &sub, &gotSub, _packet) < 0
+            || gotSub == 0)
+            return;
+
+        try
+        {
+            // Convert packet PTS → milliseconds
+            var tb = _formatContext->streams[_subtitleStreamIndex]->time_base;
+            long startMs = _packet->pts != ffmpeg.AV_NOPTS_VALUE
+                ? (long)(_packet->pts * tb.num / (double)tb.den * 1000.0)
+                : 0;
+            long durationMs = sub.end_display_time > 0
+                ? sub.end_display_time   // already in ms, relative to startMs
+                : (_packet->duration > 0
+                    ? (long)(_packet->duration * tb.num / (double)tb.den * 1000.0)
+                    : 3000);
+            long endMs = startMs + durationMs;
+
+            string text = ExtractSubtitleText(&sub);
+            if (string.IsNullOrWhiteSpace(text))
+                return;
+
+            var cue = new SubtitleCue { StartMs = startMs, EndMs = endMs, Text = text };
+
+            // Raise on background thread; VideoPlayerControl marshals to UI thread
+            SubtitleCueReady?.Invoke(cue);
+        }
+        finally
+        {
+            ffmpeg.avsubtitle_free(&sub);
+        }
+    }
+
+    private static string ExtractSubtitleText(AVSubtitle* sub)
+    {
+        var sb = new System.Text.StringBuilder();
+
+        for (uint r = 0; r < sub->num_rects; r++)
+        {
+            var rect = sub->rects[r];
+            string? line = null;
+
+            if (rect->type == AVSubtitleType.SUBTITLE_ASS && rect->ass != null)
+            {
+                var raw = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)rect->ass);
+                if (raw != null) line = StripAssFormatting(raw);
+            }
+            else if (rect->type == AVSubtitleType.SUBTITLE_TEXT && rect->text != null)
+            {
+                line = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)rect->text);
+            }
+
+            if (!string.IsNullOrWhiteSpace(line))
+            {
+                if (sb.Length > 0) sb.Append('\n');
+                sb.Append(line);
+            }
+        }
+
+        return sb.ToString();
+    }
+
+    private static string StripAssFormatting(string assLine)
+    {
+        // Skip the first 9 comma-delimited ASS header fields to get the dialogue text
+        int commas = 0, textStart = 0;
+        for (int i = 0; i < assLine.Length; i++)
+        {
+            if (assLine[i] == ',') { commas++; if (commas == 9) { textStart = i + 1; break; } }
+        }
+
+        string text = textStart < assLine.Length ? assLine[textStart..] : assLine;
+
+        // Remove inline override tags {…}
+        text = System.Text.RegularExpressions.Regex.Replace(text, @"\{[^}]*\}", string.Empty);
+
+        // Replace hard line-break codes
+        text = text.Replace(@"\N", "\n").Replace(@"\n", "\n").Replace(@"\h", " ");
+
+        return text.Trim();
+    }
 
     /// <summary>
     /// Opens a media file for playback.
@@ -1366,6 +1722,14 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
                             videoPacketsProcessed++;
                         }
                     }
+                    else if (streamIndex == _subtitleStreamIndex)
+                    {
+                        lock (_lock)
+                        {
+                            if (_subtitleCodecContext != null)
+                                ProcessSubtitlePacket();
+                        }
+                    }
                 }
                 finally
                 {
@@ -1816,6 +2180,13 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
             ffmpeg.avcodec_free_context(&ctx);
             _audioCodecContext = null;
         }
+        
+        if (_subtitleCodecContext != null)
+        {
+            var ctx = _subtitleCodecContext;
+            ffmpeg.avcodec_free_context(&ctx);
+            _subtitleCodecContext = null;
+        }
 
         if (_formatContext != null)
         {
@@ -1841,6 +2212,7 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
         _totalPauseTime = 0;
         _pauseStartTime = 0;
         _seekTargetPts = -1;
+        _subtitleStreamIndex = -1;
     }
 
     /// <summary>
