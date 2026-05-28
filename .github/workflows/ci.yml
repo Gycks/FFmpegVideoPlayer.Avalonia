@@ -31,10 +31,10 @@ jobs:
         run: dotnet build Avalonia.FFmpegVideoPlayer.csproj -c Release --no-restore
 
       - name: Pack Core
-        run: dotnet pack FFmpegVideoPlayer.Core/FFmpegVideoPlayer.Core.csproj -c Release --no-build --output ./artifacts -p:Version=${{ env.UPSTREAM_VERSION }}.${{ env.FORK_REVISION }}
+        run: dotnet pack FFmpegVideoPlayer.Core/FFmpegVideoPlayer.Core.csproj -c Release --no-build --output ./artifacts
 
       - name: Pack Avalonia
-        run: dotnet pack Avalonia.FFmpegVideoPlayer.csproj -c Release --no-build --output ./artifacts -p:Version=${{ env.UPSTREAM_VERSION }}.${{ env.FORK_REVISION }}
+        run: dotnet pack Avalonia.FFmpegVideoPlayer.csproj -c Release --no-build --output ./artifacts
 
       - name: Push to GitHub Packages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
