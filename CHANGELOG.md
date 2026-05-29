@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.9.0] - 2026-05-29
+
+### Added
+- Audio-only media files can now be opened directly in `VideoPlayerControl`. The control shows an audio placeholder, keeps the timeline usable without a video frame, and drives audio-only progress from a real-time playback clock instead of decoder PTS.
+
+### Fixed
+- Fixed OpenAL queue handling in the default OpenTK audio backend. Pending audio chunks are no longer dropped when FFmpeg decodes faster than OpenAL has free buffers, which prevented audio-only files from ending early or sounding too fast.
+- Made the OpenAL context current on the audio worker thread before issuing OpenAL calls.
+
 ## [2.8.1] - 2026-05-20
 
 ### Fixed

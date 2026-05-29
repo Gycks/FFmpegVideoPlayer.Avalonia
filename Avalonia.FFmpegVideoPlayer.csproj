@@ -10,12 +10,12 @@
     <PackageId>FFmpegVideoPlayer.Avalonia</PackageId>
     <AssemblyName>Avalonia.FFmpegVideoPlayer</AssemblyName>
     <RootNamespace>Avalonia.FFmpegVideoPlayer</RootNamespace>
-    <Version>2.8.1</Version>
+    <Version>2.9.0</Version>
     <Authors>jojomondag</Authors>
     <Company>jojomondag</Company>
-    <Description>FFmpeg video player for Avalonia UI. Windows FFmpeg binaries bundled; macOS and Linux users get auto-install via Homebrew/apt/dnf/pacman on first run.</Description>
-    <PackageReleaseNotes>v2.8.1: Fix #4 — rebuilt against Avalonia 12.0.1 to resolve ReflectionBindingExtension.ProvideValue MissingMethodException in Avalonia 12.x apps. v2.8.0: Close #1 — Linux auto-install via apt/dnf/pacman (with sudo -n), matching the existing macOS Homebrew flow. macOS x64 (Intel) Homebrew was already supported. v2.7.1: Fix #3 — frame-accurate slider seeking. v2.7.0: Fix #2 — macOS NotSupportedException at avformat_open_input (bundled osx-arm64 dylibs removed; initializer validates load and falls back). v2.6.3: OpenAL default audio.</PackageReleaseNotes>
-    <PackageTags>avalonia;ffmpeg;video;player;media;cross-platform;arm64;self-contained</PackageTags>
+    <Description>FFmpeg media player for Avalonia UI with video and audio-only playback. Windows FFmpeg binaries bundled; macOS and Linux users get auto-install via Homebrew/apt/dnf/pacman on first run.</Description>
+    <PackageReleaseNotes>v2.9.0: Adds audio-only playback support in VideoPlayerControl and fixes OpenAL audio queue loss that could make audio end early or sound too fast. v2.8.1: Fix #4 — rebuilt against Avalonia 12.0.1 to resolve ReflectionBindingExtension.ProvideValue MissingMethodException in Avalonia 12.x apps. v2.8.0: Close #1 — Linux auto-install via apt/dnf/pacman (with sudo -n), matching the existing macOS Homebrew flow. macOS x64 (Intel) Homebrew was already supported. v2.7.1: Fix #3 — frame-accurate slider seeking. v2.7.0: Fix #2 — macOS NotSupportedException at avformat_open_input (bundled osx-arm64 dylibs removed; initializer validates load and falls back). v2.6.3: OpenAL default audio.</PackageReleaseNotes>
+    <PackageTags>avalonia;ffmpeg;video;audio;player;media;cross-platform;arm64;self-contained</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <PackageProjectUrl>https://github.com/jojomondag/FFmpegVideoPlayer.Avalonia</PackageProjectUrl>
     <RepositoryUrl>https://github.com/jojomondag/FFmpegVideoPlayer.Avalonia</RepositoryUrl>
@@ -50,7 +50,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="Avalonia" Version="12.0.1" />
+    <PackageReference Include="Avalonia" Version="11.3.15" />
   </ItemGroup>
 
   <!-- Core + OpenTK audio (OpenAL) so playback has sound by default; override via AudioPlayerFactory property if needed -->

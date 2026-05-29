@@ -3,7 +3,7 @@
 
 # FFmpegVideoPlayer.Avalonia
 
-FFmpeg-based video player control for Avalonia. Works on Windows, macOS, and Linux (including Apple Silicon).
+FFmpeg-based media player control for Avalonia, with video and audio-only playback. Works on Windows, macOS, and Linux (including Apple Silicon).
 
 ![Preview](https://raw.githubusercontent.com/jojomondag/FFmpegVideoPlayer.Avalonia/main/images/Preview1.png)
 
@@ -13,7 +13,7 @@ FFmpeg-based video player control for Avalonia. Works on Windows, macOS, and Lin
 dotnet add package FFmpegVideoPlayer.Avalonia
 ```
 
-Requires **Avalonia 12.0.1+** and **.NET 8+**.
+Requires **Avalonia 11.3.15+** and **.NET 8+**.
 
 ## Quick start
 
@@ -32,6 +32,8 @@ xmlns:ffmpeg="clr-namespace:Avalonia.FFmpegVideoPlayer;assembly=Avalonia.FFmpegV
 
 <ffmpeg:VideoPlayerControl Source="C:\path\to\video.mp4" ShowControls="True" />
 ```
+
+Video and audio-only files are both supported, for example `.mp4`, `.mov`, `.mp3`, `.wav`, `.flac`, `.ogg`, and `.m4a`.
 
 Audio (OpenAL) is included in the main package. On Windows, install [OpenAL Soft](https://www.openal-soft.org/) or place `OpenAL32.dll` next to your app — otherwise playback is video-only.
 
