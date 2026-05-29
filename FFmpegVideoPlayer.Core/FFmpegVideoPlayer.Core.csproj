@@ -9,9 +9,9 @@
     
     <!-- NuGet Package Properties -->
     <PackageId>GycksLab.FFmpegVideoPlayer.Core</PackageId>
-    <AssemblyName>FFmpegVideoPlayer.Core</AssemblyName>
+    <AssemblyName>GycksLab.FFmpegVideoPlayer.Core</AssemblyName>
     <RootNamespace>FFmpegVideoPlayer.Core</RootNamespace>
-    <Version>2.7.0.1</Version>
+    <Version>2.7.0.2</Version>
     <Authors>Gycks</Authors>
     <Company>Gycks</Company>
     <Description>Core FFmpeg video player logic without UI dependencies. Fork of jojomondag/FFmpegVideoPlayer.Avalonia with additional functionality. Use this package for non-Avalonia projects or custom UI implementations.</Description>

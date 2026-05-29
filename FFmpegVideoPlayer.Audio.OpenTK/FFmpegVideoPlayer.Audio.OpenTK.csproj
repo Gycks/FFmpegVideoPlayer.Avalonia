@@ -8,17 +8,17 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     
     <!-- NuGet Package Properties -->
-    <PackageId>FFmpegVideoPlayer.Audio.OpenTK</PackageId>
-    <AssemblyName>FFmpegVideoPlayer.Audio.OpenTK</AssemblyName>
+    <PackageId>GycksLab.FFmpegVideoPlayer.Audio.OpenTK</PackageId>
+    <AssemblyName>GycksLab.FFmpegVideoPlayer.Audio.OpenTK</AssemblyName>
     <RootNamespace>FFmpegVideoPlayer.Audio.OpenTK</RootNamespace>
-    <Version>2.1.8</Version>
-    <Authors>jojomondag</Authors>
-    <Company>jojomondag</Company>
-    <Description>OpenTK-based audio implementation for FFmpegVideoPlayer.Core. Provides audio playback using OpenAL.</Description>
+    <Version>2.1.8.2</Version>
+    <Authors>GycksLab</Authors>
+    <Company>GycksLab</Company>
+    <Description>OpenTK-based audio implementation for FFmpegVideoPlayer.Core. Fork of jojomondag/FFmpegVideoPlayer.Avalonia with additional functionality. Provides audio playback using OpenAL.</Description>
     <PackageTags>ffmpeg;video;player;audio;opentk;openal;cross-platform</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/jojomondag/FFmpegVideoPlayer.Avalonia</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/jojomondag/FFmpegVideoPlayer.Avalonia</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Gycks/FFmpegVideoPlayer.Avalonia</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Gycks/FFmpegVideoPlayer.Avalonia</RepositoryUrl>
     
     <!-- Generate XML documentation -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>

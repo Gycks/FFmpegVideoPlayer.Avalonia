@@ -8,17 +8,17 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     
     <!-- NuGet Package Properties -->
-    <PackageId>FFmpegVideoPlayer.Rendering.OpenGL</PackageId>
-    <AssemblyName>FFmpegVideoPlayer.Rendering.OpenGL</AssemblyName>
+    <PackageId>GycksLab.FFmpegVideoPlayer.Rendering.OpenGL</PackageId>
+    <AssemblyName>GycksLab.FFmpegVideoPlayer.Rendering.OpenGL</AssemblyName>
     <RootNamespace>FFmpegVideoPlayer.Rendering.OpenGL</RootNamespace>
-    <Version>2.1.8</Version>
-    <Authors>jojomondag</Authors>
-    <Company>jojomondag</Company>
-    <Description>OpenGL-based hardware-accelerated rendering for FFmpegVideoPlayer. Provides OpenGL texture-based video rendering for improved performance.</Description>
+    <Version>2.1.8.2</Version>
+    <Authors>Gycks</Authors>
+    <Company>Gycks</Company>
+    <Description>OpenGL-based hardware-accelerated rendering for FFmpegVideoPlayer. Fork of jojomondag/FFmpegVideoPlayer.Avalonia with additional functionality. Provides OpenGL texture-based video rendering for improved performance.</Description>
     <PackageTags>ffmpeg;video;player;opengl;hardware;acceleration;rendering;cross-platform</PackageTags>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
-    <PackageProjectUrl>https://github.com/jojomondag/FFmpegVideoPlayer.Avalonia</PackageProjectUrl>
-    <RepositoryUrl>https://github.com/jojomondag/FFmpegVideoPlayer.Avalonia</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Gycks/FFmpegVideoPlayer.Avalonia</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Gycks/FFmpegVideoPlayer.Avalonia</RepositoryUrl>
     
     <!-- Generate XML documentation -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
