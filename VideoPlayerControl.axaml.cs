@@ -771,6 +771,7 @@ public partial class VideoPlayerControl : UserControl
     private void SetupVideoRenderer()
     {
         if (_videoBorder == null) return;
+        _videoBorder.MinWidth = 0;
 
         // Dispose old renderer
         if (_videoRenderer != null)
@@ -899,9 +900,18 @@ public partial class VideoPlayerControl : UserControl
         Debug.WriteLine($"[VideoPlayerControl] Media loaded successfully, raising MediaOpened event");
         MediaOpened?.Invoke(this, new MediaOpenedEventArgs(path));
 
-        // Decode and display first frame as thumbnail/preview
-        // This ensures the video has correct dimensions before playback starts
-        _mediaPlayer.DecodeFirstFrame();
+        if (_mediaPlayer.HasVideo)
+        {
+            SetupVideoRenderer();
+
+            // Decode and display first frame as thumbnail/preview.
+            // This ensures the video has correct dimensions before playback starts.
+            _mediaPlayer.DecodeFirstFrame();
+        }
+        else
+        {
+            ShowAudioOnlyPlaceholder();
+        }
 
         if (AutoPlay)
         {
@@ -1047,6 +1057,40 @@ public partial class VideoPlayerControl : UserControl
     {
         UpdatePlayPauseButton(true);
         PlaybackStarted?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void ShowAudioOnlyPlaceholder()
+    {
+        if (_videoBorder == null)
+            return;
+
+        _videoRenderer?.Dispose();
+        _videoRenderer = null;
+        _videoBorder.MinWidth = 520;
+
+        var fileName = !string.IsNullOrWhiteSpace(_currentMediaPath)
+            ? System.IO.Path.GetFileName(_currentMediaPath)
+            : "Audio";
+
+        _videoBorder.Child = new Grid
+        {
+            MinWidth = 520,
+            MinHeight = 160,
+            Children =
+            {
+                new TextBlock
+                {
+                    Text = string.IsNullOrWhiteSpace(fileName) ? "Audio" : fileName,
+                    HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center,
+                    VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center,
+                    TextAlignment = TextAlignment.Center,
+                    TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(24, 24, 24, 56),
+                    FontSize = 18,
+                    Foreground = ControlForeground ?? Brushes.White
+                }
+            }
+        };
     }
 
     private void OnPaused(object? sender, EventArgs e)

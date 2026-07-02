@@ -195,6 +195,16 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
     public int VideoHeight => _videoHeight;
 
     /// <summary>
+    /// Gets whether the currently opened media has a supported video stream.
+    /// </summary>
+    public bool HasVideo => _videoStreamIndex >= 0 && _videoCodecContext != null;
+
+    /// <summary>
+    /// Gets whether the currently opened media has a supported audio stream.
+    /// </summary>
+    public bool HasAudio => _audioStreamIndex >= 0 && _audioCodecContext != null;
+
+    /// <summary>
     /// Raised when the position changes during playback.
     /// </summary>
     public event EventHandler<PositionChangedEventArgs>? PositionChanged;
@@ -1746,9 +1756,13 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
             // Minimal sleep only if we processed packets, to prevent CPU spinning
             if (packetsThisIteration > 0 && !endOfFile)
             {
+                UpdateAudioOnlyPositionFromPlaybackClock(stopwatch);
                 Thread.Sleep(1);
             }
         }
+
+        // Reset state inside lock
+        WaitForAudioOnlyPlaybackToFinish(token, stopwatch);
 
         // Reset state inside lock
         lock (_lock)
@@ -1784,6 +1798,67 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
             _synchronizationCallback(() => EndReached?.Invoke(this, EventArgs.Empty));
         else
             EndReached?.Invoke(this, EventArgs.Empty);
+    }
+
+    private void WaitForAudioOnlyPlaybackToFinish(CancellationToken token, Stopwatch stopwatch)
+    {
+        if (_videoStreamIndex >= 0 || _audioPlayer == null || _duration <= 0)
+            return;
+
+        _logger.Log("FFmpegMediaPlayer", "AudioOnlyDrainStarted", new
+        {
+            Duration = _duration,
+            AudioStartPts = _audioStartPts
+        });
+
+        while (!token.IsCancellationRequested)
+        {
+            if (_isPaused)
+            {
+                if (_pauseStartTime == 0)
+                    _pauseStartTime = stopwatch.Elapsed.TotalSeconds;
+
+                Thread.Sleep(10);
+                continue;
+            }
+
+            if (_pauseStartTime > 0)
+            {
+                _totalPauseTime += stopwatch.Elapsed.TotalSeconds - _pauseStartTime;
+                _pauseStartTime = 0;
+            }
+
+            var playedPosition = UpdateAudioOnlyPositionFromPlaybackClock(stopwatch);
+
+            if (playedPosition >= _duration - 0.05)
+                break;
+
+            Thread.Sleep(50);
+        }
+
+        _logger.Log("FFmpegMediaPlayer", "AudioOnlyDrainCompleted", new
+        {
+            Position = _position,
+            ElapsedWallTime = stopwatch.Elapsed.TotalSeconds - _playbackStartWallTime - _totalPauseTime
+        });
+    }
+
+    private double UpdateAudioOnlyPositionFromPlaybackClock(Stopwatch stopwatch)
+    {
+        if (_videoStreamIndex >= 0 || _duration <= 0 || _playbackStartWallTime <= 0)
+            return _position;
+
+        var elapsedWall = stopwatch.Elapsed.TotalSeconds - _playbackStartWallTime - _totalPauseTime;
+        var playedPosition = _startTime + Math.Max(0, elapsedWall);
+        _position = Math.Clamp(playedPosition, 0, _duration);
+        var positionSnapshot = Position;
+
+        if (_synchronizationCallback != null)
+            _synchronizationCallback(() => PositionChanged?.Invoke(this, new PositionChangedEventArgs(positionSnapshot)));
+        else
+            PositionChanged?.Invoke(this, new PositionChangedEventArgs(positionSnapshot));
+
+        return playedPosition;
     }
 
     /// <summary>
@@ -1999,6 +2074,13 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
                     {
                         lastAudioPts = audioTime;
                         _audioStartPts = audioTime; // Track when audio stream starts for sync
+                        if (_videoStreamIndex < 0)
+                        {
+                            _startTime = audioTime;
+                            _playbackStartWallTime = stopwatch.Elapsed.TotalSeconds;
+                            _totalPauseTime = 0;
+                            _pauseStartTime = 0;
+                        }
                         _needsResync = false;
                         _logger.Log("FFmpegMediaPlayer", "FirstAudioFrame", new
                         {
