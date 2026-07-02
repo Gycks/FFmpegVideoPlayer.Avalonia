@@ -10,7 +10,7 @@
     <PackageId>GycksLab.FFmpegVideoPlayer.Avalonia</PackageId>
     <AssemblyName>GycksLab.Avalonia.FFmpegVideoPlayer</AssemblyName>
     <RootNamespace>Avalonia.FFmpegVideoPlayer</RootNamespace>
-    <Version>2.9.0</Version>
+    <Version>2.9.0.1</Version>
     <Authors>Gycks</Authors>
     <Company>Gycks</Company>
     <Description>FFmpeg video player for Avalonia UI. Fork of jojomondag/FFmpegVideoPlayer.Avalonia with additional functionality. Windows FFmpeg binaries bundled; macOS and Linux users get auto-install via Homebrew/apt/dnf/pacman on first run.</Description>
