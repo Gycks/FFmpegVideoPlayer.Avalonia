@@ -272,15 +272,13 @@ public sealed class OpenTKAudioPlayer : IAudioPlayer
             // Convert sample frames to individual samples (for stereo: frames * channels)
             var sampleOffset = sampleOffsetFrames * _channels;
             
-            // Calculate samples currently in playback (queued but not yet played)
-            var samplesInPipeline = _totalSamplesQueued - _totalSamplesPlayed;
-            
-            // Calculate current playback position more accurately:
-            // - Use actual played samples (_totalSamplesPlayed)
-            // - Add samples currently being played by hardware (sampleOffset)
-            // - Add a portion of samples in buffers (accounting for buffer latency)
-            // Use 0.5 factor for pipeline samples to better account for average buffer fill
-            var currentSamples = _totalSamplesPlayed + sampleOffset + (samplesInPipeline * 0.5);
+            // Calculate current playback position from what OpenAL has actually played:
+            // - _totalSamplesPlayed tracks fully processed buffers.
+            // - sampleOffset tracks the current position inside the active buffer.
+            // Do not include queued-but-unplayed buffers. FFmpeg can decode audio much
+            // faster than real time, especially for audio-only files, and counting the
+            // queued pipeline makes the media clock run ahead and stop playback early.
+            var currentSamples = _totalSamplesPlayed + sampleOffset;
             
             // For stereo audio, _totalSamplesPlayed counts both L and R samples (interleaved)
             // We need to convert to frames (sample pairs) by dividing by channel count
@@ -323,6 +321,15 @@ public sealed class OpenTKAudioPlayer : IAudioPlayer
     private void AudioLoop()
     {
         var token = _cts.Token;
+
+        try
+        {
+            ALC.MakeContextCurrent(_context);
+        }
+        catch (Exception ex)
+        {
+            Debug.WriteLine($"[OpenTKAudioPlayer] Failed to make context current on audio thread: {ex.Message}");
+        }
         
         while (!token.IsCancellationRequested)
         {
@@ -350,9 +357,14 @@ public sealed class OpenTKAudioPlayer : IAudioPlayer
 
                 // Queue S16 samples first (from SwrContext - already in correct format)
                 int s16Queued = 0;
-                while (_pendingS16Samples.TryDequeue(out var pcmData) && 
-                       _availableBuffers.TryDequeue(out var buffer))
+                while (_availableBuffers.TryDequeue(out var buffer))
                 {
+                    if (!_pendingS16Samples.TryDequeue(out var pcmData))
+                    {
+                        _availableBuffers.Enqueue(buffer);
+                        break;
+                    }
+
                     AL.BufferData(buffer, ALFormat.Stereo16, pcmData, _sampleRate);
                     var bufferError = AL.GetError();
                     if (bufferError != ALError.NoError)
@@ -382,9 +394,14 @@ public sealed class OpenTKAudioPlayer : IAudioPlayer
 
                 // Queue float samples (fallback - convert to S16)
                 int floatQueued = 0;
-                while (_pendingSamples.TryDequeue(out var samples) && 
-                       _availableBuffers.TryDequeue(out var buffer))
+                while (_availableBuffers.TryDequeue(out var buffer))
                 {
+                    if (!_pendingSamples.TryDequeue(out var samples))
+                    {
+                        _availableBuffers.Enqueue(buffer);
+                        break;
+                    }
+
                     // Convert float samples to 16-bit PCM
                     var pcmData = new short[samples.Length];
                     for (int i = 0; i < samples.Length; i++)
