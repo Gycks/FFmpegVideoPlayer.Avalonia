@@ -934,6 +934,11 @@ public partial class VideoPlayerControl : UserControl
             Open(uri.ToString());
         }
     }
+    
+    /// <summary>
+    /// Aborts the existing Open attempt.
+    /// </summary>
+    public void CancelOpen() => _mediaPlayer?.CancelOpen();
 
     /// <summary>
     /// Starts or resumes playback.
@@ -1317,6 +1322,7 @@ public partial class VideoPlayerControl : UserControl
 
     private void Cleanup()
     {
+        _mediaPlayer?.CancelOpen();
         if (_mediaPlayer != null)
         {
             _mediaPlayer.PositionChanged -= OnPositionChanged;

@@ -1,12 +1,9 @@
-using System;
 using System.Buffers;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.Runtime.InteropServices;
-using System.Threading;
 using FFmpeg.AutoGen;
 using FFmpegVideoPlayer.Core.Models;
+using System.Runtime.CompilerServices;
 
 namespace FFmpegVideoPlayer.Core;
 
@@ -50,6 +47,9 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
     // Audio playback
     private IAudioPlayer? _audioPlayer;
     private readonly Func<int, int, IAudioPlayer?>? _audioPlayerFactory;
+    
+    private AVIOInterruptCB_callback? _openInterruptDelegate;
+    private volatile bool _cancelOpenRequested;
 
     /// <summary>
     /// Gets or sets the audio player. When changed, ensures state synchronization.
@@ -141,6 +141,11 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
             DataLength = dataLength;
             Pts = pts;
         }
+    }
+    
+    private int OpenInterruptCallback(void* opaque)
+    {
+        return _cancelOpenRequested ? 1 : 0;
     }
 
     /// <summary>
@@ -601,22 +606,45 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
             _logger.Log("FFmpegMediaPlayer", "MovieLoadingStarted", new { Path = path, Timestamp = DateTime.Now });
             
             CloseInternal();
-
+            
+            _cancelOpenRequested = false;
+            
             _pendingFrameCount = 0;
             _droppedFrames = 0;
 
             _logger.Log("FFmpegMediaPlayer", "OpeningMediaFile", new { Path = path });
             
+            var ctx = ffmpeg.avformat_alloc_context();
+            _openInterruptDelegate = OpenInterruptCallback;
+            ctx->interrupt_callback = new AVIOInterruptCB
+            {
+                callback = new AVIOInterruptCB_callback_func
+                {
+                    Pointer = Marshal.GetFunctionPointerForDelegate(_openInterruptDelegate)
+                },
+                opaque = null
+            };
+            
+            _formatContext = ctx;
+            
             fixed (AVFormatContext** formatContext = &_formatContext)
             {
-                if (ffmpeg.avformat_open_input(formatContext, path, null, null) != 0)
+                int openResult = ffmpeg.avformat_open_input(formatContext, path, null, null);
+                if (openResult != 0)
                 {
-                    Debug.WriteLine($"[FFmpegMediaPlayer] Failed to open media: {path}");
-                    _logger.Log("FFmpegMediaPlayer", "OpenFailed", new { Path = path, Reason = "avformat_open_input failed" });
+                    // Decode the actual FFmpeg error instead of just knowing it's < 0.
+                    var errBuf = stackalloc byte[1024];
+                    ffmpeg.av_strerror(openResult, errBuf, 1024);
+                    var errText = Marshal.PtrToStringAnsi((IntPtr)errBuf) ?? "unknown error";
+
+                    Debug.WriteLine($"[FFmpegMediaPlayer] Failed to open media: {path} ({openResult}: {errText})");
+                    _logger.Log("FFmpegMediaPlayer", "OpenFailed", new { Path = path, Reason = "avformat_open_input failed", ErrorCode = openResult, ErrorText = errText });
+                    // avformat_open_input frees the context and sets *ps to null on failure,
+                    // so _formatContext is already null here.
                     return false;
                 }
             }
-            
+
             _logger.Log("FFmpegMediaPlayer", "MediaFileOpened", new { Path = path });
 
             _logger.Log("FFmpegMediaPlayer", "ReadingStreamInfo", null);
@@ -880,6 +908,11 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
 
             return true;
         }
+    }
+    
+    public void CancelOpen()
+    {
+        _cancelOpenRequested = true;
     }
 
     private bool InitializeVideoDecoder()
@@ -2276,7 +2309,8 @@ public sealed unsafe class FFmpegMediaPlayer : IDisposable
             ffmpeg.avformat_close_input(&ctx);
             _formatContext = null;
         }
-
+        _openInterruptDelegate = null;
+        
         AudioPlayer = null;
 
         _videoStreamIndex = -1;
